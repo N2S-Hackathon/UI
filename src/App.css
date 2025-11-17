@@ -1,0 +1,64 @@
+.App {
+  text-align: center;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.App-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 3rem;
+  border-radius: 20px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  color: white;
+  max-width: 600px;
+  width: 90%;
+}
+
+h1 {
+  font-size: 2.5rem;
+  margin-bottom: 1rem;
+  font-weight: 700;
+}
+
+.description {
+  margin-top: 1.5rem;
+  font-size: 0.95rem;
+  opacity: 0.9;
+}
+
+.card {
+  margin: 2rem 0;
+}
+
+button {
+  background-color: white;
+  color: #667eea;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+}
+
+button:active {
+  transform: translateY(0);
+}
+
+code {
+  background-color: rgba(255, 255, 255, 0.1);
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+}
+
