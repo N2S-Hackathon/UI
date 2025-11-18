@@ -1,84 +1,97 @@
-// API Service - Ready for database connection
-// Replace the mock data with actual API calls when backend is ready
+// API Service - Live API Integration
+// Fetches data from backend API with fallback to mock data
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
+// Use proxy in development to avoid CORS issues, direct URL in production
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+
+// Authentication credentials (handled by Vite proxy in development)
+const API_USERNAME = 'noise2signal';
+const API_PASSWORD = 'zestyIsAOK';
+
+// Helper function to create auth headers
+// Note: In development, auth is handled by Vite proxy. This is for production builds.
+const getAuthHeaders = () => {
+  // Check if we're using the proxy (development)
+  const usingProxy = API_BASE_URL.startsWith('/api');
+  
+  if (usingProxy) {
+    // Proxy handles auth, just send content type
+    return {
+      'Content-Type': 'application/json'
+    };
+  } else {
+    // Direct API call (production), include auth headers
+    const credentials = btoa(`${API_USERNAME}:${API_PASSWORD}`);
+    return {
+      'Authorization': `Basic ${credentials}`,
+      'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': 'true'
+    };
+  }
+};
+
+// Utility functions for data transformation
+const formatDate = (isoDateString) => {
+  if (!isoDateString) return null;
+  const date = new Date(isoDateString);
+  return date.toLocaleDateString('en-US', { 
+    month: 'short', 
+    day: 'numeric', 
+    year: 'numeric' 
+  });
+};
+
+const calculatePromotionStatus = (startDate, endDate) => {
+  const now = new Date();
+  const start = new Date(startDate);
+  const end = endDate ? new Date(endDate) : null;
+  
+  if (now < start) return 'scheduled';
+  if (end && now > end) return 'expired';
+  return 'active';
+};
 
 // ====================
 // PRODUCTS API
 // ====================
 
 export const fetchProducts = async () => {
-  // TODO: Replace with actual API call
-  // const response = await fetch(`${API_BASE_URL}/products`);
-  // return await response.json();
-  
-  // Mock data - replace when backend is ready
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve([
-        {
-          id: 1,
-          name: 'Basic 100 Mbps',
-          description: 'Perfect for light browsing and streaming',
-          speed: '100 Mbps',
-          price: 39.99,
-          type: 'Residential',
-          features: ['Up to 100 Mbps', 'Unlimited data', 'Free installation', '24/7 support'],
-          status: 'active'
-        },
-        {
-          id: 2,
-          name: 'Fiber 500 Mbps',
-          description: 'High-speed internet for families',
-          speed: '500 Mbps',
-          price: 59.99,
-          type: 'Residential',
-          features: ['Up to 500 Mbps', 'Unlimited data', 'Free WiFi router', 'Priority support'],
-          status: 'active'
-        },
-        {
-          id: 3,
-          name: 'Fiber 1 Gbps',
-          description: 'Ultimate speed for power users',
-          speed: '1 Gbps',
-          price: 79.99,
-          type: 'Residential',
-          features: ['Up to 1 Gbps', 'Unlimited data', 'Premium WiFi 6 router', 'VIP support'],
-          status: 'active'
-        },
-        {
-          id: 4,
-          name: 'Business Pro',
-          description: 'Reliable connectivity for small businesses',
-          speed: '500 Mbps',
-          price: 99.99,
-          type: 'Business',
-          features: ['Up to 500 Mbps', 'Static IP address', 'Business-grade support', 'SLA guarantee'],
-          status: 'active'
-        },
-        {
-          id: 5,
-          name: 'Enterprise',
-          description: 'Enterprise-grade internet solution',
-          speed: '1 Gbps+',
-          price: 199.99,
-          type: 'Business',
-          features: ['Custom bandwidth', 'Dedicated fiber', 'Enterprise support', '99.9% uptime SLA'],
-          status: 'active'
-        },
-        {
-          id: 6,
-          name: 'Premium Support',
-          description: 'Enhanced support package for any plan',
-          speed: 'N/A',
-          price: 14.99,
-          type: 'Add-on',
-          features: ['Priority phone support', 'Same-day service', 'Remote diagnostics', 'Annual tech visit'],
-          status: 'active'
-        }
-      ]);
-    }, 300);
-  });
+  try {
+    const response = await fetch(`${API_BASE_URL}/product`, {
+      headers: getAuthHeaders()
+    });
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.status}`);
+    }
+    
+    const apiProducts = await response.json();
+    
+    // Transform API data to match UI structure
+    return apiProducts.map(product => {
+      // Get the current/active rate (most recent with no end date or latest start date)
+      const activeRate = product.rates && product.rates.length > 0
+        ? product.rates
+            .filter(r => !r.enddate || new Date(r.enddate) > new Date())
+            .sort((a, b) => new Date(b.startdate) - new Date(a.startdate))[0]
+        : null;
+      
+      return {
+        id: product.productid,
+        name: product.productname,
+        description: `${product.producttype} internet service`, // Fallback description
+        speed: product.productspeed ? `${product.productspeed} Mbps` : 'N/A',
+        price: activeRate ? parseFloat(activeRate.price) : 0,
+        type: product.producttype,
+        features: [], // Not in API, using empty array
+        status: 'active' // Fallback status
+      };
+    });
+  } catch (error) {
+    console.error('Failed to fetch products from API:', error);
+    // Fallback to mock data from staticData
+    const { PRODUCTS_DATA } = await import('../data/staticData');
+    return PRODUCTS_DATA;
+  }
 };
 
 export const createProduct = async (productData) => {
@@ -123,73 +136,30 @@ export const deleteProduct = async (productId) => {
 // ====================
 
 export const fetchCohorts = async () => {
-  // TODO: Replace with actual API call
-  // const response = await fetch(`${API_BASE_URL}/cohorts`);
-  // return await response.json();
-  
-  // Mock data - replace when backend is ready
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve([
-        {
-          id: 1,
-          name: 'New Customers',
-          zip: '10001',
-          estimatedPeople: 2450,
-          description: 'Customers who signed up in the last 90 days'
-        },
-        {
-          id: 2,
-          name: 'Existing Customers',
-          zip: '10002',
-          estimatedPeople: 8920,
-          description: 'Active customers beyond initial 90-day period'
-        },
-        {
-          id: 3,
-          name: 'First-time Subscribers',
-          zip: '10003',
-          estimatedPeople: 1580,
-          description: 'Never subscribed to any ISP service before'
-        },
-        {
-          id: 4,
-          name: 'Long-term Customers',
-          zip: '10004',
-          estimatedPeople: 5340,
-          description: 'Loyal customers with 2+ years of service'
-        },
-        {
-          id: 5,
-          name: 'High-Value Segment',
-          zip: '10005',
-          estimatedPeople: 1120,
-          description: 'Premium tier customers with high usage'
-        },
-        {
-          id: 6,
-          name: 'At-Risk Customers',
-          zip: '10006',
-          estimatedPeople: 890,
-          description: 'Customers showing signs of churn'
-        },
-        {
-          id: 7,
-          name: 'Rural Area Residents',
-          zip: '10007',
-          estimatedPeople: 3240,
-          description: 'Customers in rural zip codes'
-        },
-        {
-          id: 8,
-          name: 'Urban Professionals',
-          zip: '10008',
-          estimatedPeople: 4670,
-          description: 'Business district residents and professionals'
-        }
-      ]);
-    }, 300);
-  });
+  try {
+    const response = await fetch(`${API_BASE_URL}/cohort-list`, {
+      headers: getAuthHeaders()
+    });
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.status}`);
+    }
+    
+    const apiCohorts = await response.json();
+    
+    // Transform API data to match UI structure
+    return apiCohorts.map(cohort => ({
+      id: cohort.cohort_id,
+      name: cohort.cohort_name,
+      estimatedPeople: cohort.zipcode_count || 0,
+      description: cohort.description || 'Customer cohort',
+      zipCodes: [] // Summary endpoint doesn't include zipcodes, fetch detail if needed
+    }));
+  } catch (error) {
+    console.error('Failed to fetch cohorts from API:', error);
+    // Fallback to mock data from staticData
+    const { COHORTS_DATA } = await import('../data/staticData');
+    return COHORTS_DATA;
+  }
 };
 
 // ====================
@@ -197,77 +167,49 @@ export const fetchCohorts = async () => {
 // ====================
 
 export const fetchPromotions = async () => {
-  // TODO: Replace with actual API call
-  // const response = await fetch(`${API_BASE_URL}/promotions`);
-  // return await response.json();
-  
-  // Mock data - replace when backend is ready
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve([
-        {
-          id: 1,
-          name: 'Summer Speed Boost',
-          status: 'active',
-          startDate: 'Nov 1, 2025',
-          endDate: 'Dec 31, 2025',
-          discount: 25,
-          products: ['Fiber 500 Mbps', 'Fiber 1 Gbps', 'Business Pro'],
-          cohort: 'New Customers',
-          revenueImpact: '$18.5K',
-          conversionRate: '72%'
-        },
-        {
-          id: 2,
-          name: 'New Customer Welcome',
-          status: 'active',
-          startDate: 'Oct 15, 2025',
-          endDate: 'Jan 15, 2026',
-          discount: 30,
-          products: ['Basic 100 Mbps', 'Fiber 500 Mbps'],
-          cohort: 'First-time Subscribers',
-          revenueImpact: '$15.8K',
-          conversionRate: '68%'
-        },
-        {
-          id: 3,
-          name: 'Loyalty Rewards',
-          status: 'scheduled',
-          startDate: 'Dec 1, 2025',
-          endDate: 'Mar 31, 2026',
-          discount: 20,
-          products: ['Fiber 1 Gbps', 'Business Pro', 'Enterprise'],
-          cohort: 'Long-term Customers',
-          revenueImpact: null,
-          conversionRate: null
-        },
-        {
-          id: 4,
-          name: 'Black Friday Special',
-          status: 'active',
-          startDate: 'Nov 15, 2025',
-          endDate: 'Nov 30, 2025',
-          discount: 40,
-          products: ['Fiber 500 Mbps', 'Fiber 1 Gbps'],
-          cohort: 'All Customers',
-          revenueImpact: '$22.3K',
-          conversionRate: '85%'
-        },
-        {
-          id: 5,
-          name: 'Holiday Bundle Deal',
-          status: 'active',
-          startDate: 'Nov 10, 2025',
-          endDate: 'Dec 15, 2025',
-          discount: 35,
-          products: ['Fiber 1 Gbps', 'Business Pro', 'Premium Support'],
-          cohort: 'Existing Customers',
-          revenueImpact: '$19.7K',
-          conversionRate: '74%'
-        }
-      ]);
-    }, 300);
-  });
+  try {
+    const response = await fetch(`${API_BASE_URL}/promotion`, {
+      headers: getAuthHeaders()
+    });
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.status}`);
+    }
+    
+    const apiPromotions = await response.json();
+    
+    // Transform API data to match UI structure
+    return apiPromotions.map(promo => {
+      const status = calculatePromotionStatus(promo.startdate, promo.enddate);
+      
+      // Calculate discount from price/discountamount if available
+      let discount = 0;
+      if (promo.discountamount) {
+        discount = parseFloat(promo.discountamount);
+      }
+      
+      return {
+        id: promo.promotionid,
+        name: promo.promotionname,
+        status: status,
+        startDate: formatDate(promo.startdate),
+        endDate: formatDate(promo.enddate),
+        discount: discount,
+        products: [], // Not directly in API, would need product lookup
+        cohort: promo.cohortlistid || 'All Customers', // Using cohort ID or fallback
+        action: promo.action,
+        productId: promo.productid,
+        price: promo.price ? parseFloat(promo.price) : null,
+        term: promo.term,
+        limitByZip: promo.limitbyzip,
+        limitByState: promo.limitbystate
+      };
+    });
+  } catch (error) {
+    console.error('Failed to fetch promotions from API:', error);
+    // Fallback to mock data from staticData
+    const { PROMOTIONS_DATA } = await import('../data/staticData');
+    return PROMOTIONS_DATA;
+  }
 };
 
 export const createPromotion = async (promotionData) => {
@@ -305,5 +247,118 @@ export const deletePromotion = async (promotionId) => {
   
   console.log('Delete promotion:', promotionId);
   return { success: true };
+};
+
+// ====================
+// CONVERSATION API (Agentic)
+// ====================
+
+/**
+ * Create a new conversation with Claude and process initial prompt
+ * @param {string} contextPath - Context path for the conversation
+ * @param {string} prompt - Initial user prompt
+ * @returns {Promise} Conversation creation response
+ */
+export const createConversation = async (contextPath, prompt) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/conversation`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        context_path: contextPath,
+        prompt: prompt
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    return {
+      conversationId: data.conversation_id,
+      turnId: data.turn_id,
+      createdAt: data.created_at
+    };
+  } catch (error) {
+    console.error('Failed to create conversation:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get the active conversation with all turns
+ * @param {number} lastTurnSeen - Optional: last turn index seen (for polling)
+ * @returns {Promise} Full conversation with turns
+ */
+export const getActiveConversation = async (lastTurnSeen = null) => {
+  try {
+    const url = lastTurnSeen !== null 
+      ? `${API_BASE_URL}/conversation?last_turn_seen=${lastTurnSeen}`
+      : `${API_BASE_URL}/conversation`;
+    
+    const response = await fetch(url, {
+      headers: getAuthHeaders()
+    });
+    
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    return {
+      conversationId: data.conversation_id,
+      name: data.name,
+      startedAt: data.started_at,
+      turns: data.turns.map(turn => ({
+        turnId: turn.turn_id,
+        userMessage: turn.user_message,
+        createdAt: turn.created_at,
+        llmSteps: turn.llm_steps.map(step => ({
+          stepId: step.step_id,
+          stepType: step.step_type,
+          input: step.input,
+          output: step.output,
+          createdAt: step.created_at
+        }))
+      }))
+    };
+  } catch (error) {
+    console.error('Failed to fetch conversation:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get a specific conversation by ID
+ * @param {string} conversationId - Conversation UUID
+ * @returns {Promise} Conversation with turns
+ */
+export const getConversationById = async (conversationId) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/conversation/${conversationId}`, {
+      headers: getAuthHeaders()
+    });
+    
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    return {
+      conversationId: data.conversation_id,
+      name: data.name,
+      startedAt: data.started_at,
+      turns: data.turns.map(turn => ({
+        turnId: turn.turn_id,
+        userMessage: turn.user_message,
+        createdAt: turn.created_at,
+        llmSteps: turn.llm_steps
+      }))
+    };
+  } catch (error) {
+    console.error('Failed to fetch conversation by ID:', error);
+    throw error;
+  }
 };
 
