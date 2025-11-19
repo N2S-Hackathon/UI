@@ -37,6 +37,7 @@ function Dashboard() {
   const [selectedPromotion, setSelectedPromotion] = useState(null);
   const [selectedCohort, setSelectedCohort] = useState(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [approveModalOpen, setApproveModalOpen] = useState(false);
   
   // API data states
   const [promotions, setPromotions] = useState([]);
@@ -185,34 +186,33 @@ function Dashboard() {
           addAokMessage("✓ Starting fresh - no active conversations");
         }
         
-        // Build CTAs dynamically based on data
-        const quickActions = [
-          {
-            label: 'Create New Promotion',
-            icon: '➕',
-            action: 'create_promotion',
-            style: 'primary'
-          }
-        ];
-        
-        // Add pending review CTA if there are pending promotions
-        if (pendingCount > 0) {
-          quickActions.push({
-            label: `Review ${pendingCount} Pending Promotion${pendingCount > 1 ? 's' : ''}`,
-            icon: '📋',
-            action: 'view_pending',
-            style: 'secondary'
-          });
-        }
-        
-        // Final welcome message with CTAs
+        // Automatically start the promotion creation flow
         setIsAokTyping(true);
         await new Promise(resolve => setTimeout(resolve, 800));
         setIsAokTyping(false);
-        addAokMessage(
-          "🎉 All set! Here's what you can do:\n\n📊 **Promotion Management** - Create, review, and manage offers\n👥 **Cohorts** - View customer segments and demographics\n📦 **Products** - Browse internet service products\n\nQuick actions:",
-          quickActions
-        );
+        
+        // Build promotion creation prompt with suggestions from actual data
+        let suggestions = "Great! Let me help you create a new promotion. Tell me what you'd like to create.";
+        
+        if (productsData.length > 0 || cohortsData.length > 0) {
+          suggestions += "\n\nHere's what I know about:";
+          
+          if (productsData.length > 0) {
+            const productNames = productsData.slice(0, 3).map(p => p.name).join(', ');
+            suggestions += `\n• **Products:** ${productNames}${productsData.length > 3 ? `, and ${productsData.length - 3} more` : ''}`;
+          }
+          
+          if (cohortsData.length > 0) {
+            const cohortNames = cohortsData.slice(0, 3).map(c => c.name).join(', ');
+            suggestions += `\n• **Customer Segments:** ${cohortNames}${cohortsData.length > 3 ? `, and ${cohortsData.length - 3} more` : ''}`;
+          }
+          
+          suggestions += "\n\nDescribe the promotion you'd like to create, and I'll set it up! 🚀";
+        } else {
+          suggestions += " Just describe what you'd like and I'll help you set it up! 🚀";
+        }
+        
+        addAokMessage(suggestions);
         
       } catch (err) {
         console.error('Error loading dashboard data:', err);
@@ -238,13 +238,13 @@ function Dashboard() {
 
   const activePromotions = useMemo(() => 
     promotions
-      .filter(p => p.status === 'active')
+      .filter(p => p.status === 'active' && !p.isStagingOnly)
       .sort((a, b) => new Date(a.endDate) - new Date(b.endDate)),
     [promotions]
   );
 
   const scheduledPromotions = useMemo(() => 
-    promotions.filter(p => p.status === 'scheduled'),
+    promotions.filter(p => p.status === 'scheduled' && !p.isStagingOnly),
     [promotions]
   );
 
@@ -474,13 +474,27 @@ function Dashboard() {
           <div className="action-window-header">
             <h2>{activeTab === 'promotion' ? 'Promotion Management' : activeTab === 'cohorts' ? 'Cohorts' : 'Products'}</h2>
             {activeTab === 'promotion' && (
-              <button className="primary-button" onClick={openCreateModal}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <line x1="12" y1="5" x2="12" y2="19"></line>
-                  <line x1="5" y1="12" x2="19" y2="12"></line>
-                </svg>
-                Create promotion
-              </button>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button className="primary-button" onClick={openCreateModal}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                  </svg>
+                  Create promotion
+                </button>
+                {pendingPromotions.length > 0 && (
+                  <button 
+                    className="primary-button" 
+                    style={{ background: 'linear-gradient(135deg, #28a745 0%, #20c997 100%)' }}
+                    onClick={() => setApproveModalOpen(true)}
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                    Approve Promotions ({pendingPromotions.length})
+                  </button>
+                )}
+              </div>
             )}
             {activeTab !== 'promotion' && (
               <button className="primary-button">
@@ -546,7 +560,6 @@ function Dashboard() {
                           isExpanded={!!expandedPromotions[promotion.id]}
                           onToggle={() => togglePromotion(promotion.id)}
                           onOpenModal={openModal}
-                          onCommitChanges={handleCommitChanges}
                         />
                       ))}
                     </div>
@@ -683,6 +696,70 @@ function Dashboard() {
           />
         )}
       </Suspense>
+
+      {/* Approve Promotions Confirmation Modal */}
+      {approveModalOpen && (
+        <div className="modal-overlay" onClick={() => setApproveModalOpen(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+            <div className="modal-header">
+              <h2>Approve Promotions</h2>
+              <button className="modal-close" onClick={() => setApproveModalOpen(false)}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+            
+            <div className="modal-body" style={{ padding: '24px' }}>
+              <p style={{ fontSize: '16px', lineHeight: '1.6', color: '#e2e8f0', marginBottom: '16px' }}>
+                Are you sure you want to approve and commit <strong>{pendingPromotions.length} promotion{pendingPromotions.length > 1 ? 's' : ''}</strong> to production?
+              </p>
+              <p style={{ fontSize: '14px', color: '#a0aec0' }}>
+                This action will make the promotions live and visible to customers.
+              </p>
+            </div>
+            
+            <div className="modal-footer" style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', padding: '16px 24px', borderTop: '1px solid rgba(255, 255, 255, 0.1)' }}>
+              <button 
+                className="secondary-button"
+                onClick={() => setApproveModalOpen(false)}
+                style={{
+                  padding: '10px 24px',
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  borderRadius: '8px',
+                  color: '#e2e8f0',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '600'
+                }}
+              >
+                No, Cancel
+              </button>
+              <button 
+                className="primary-button"
+                onClick={async () => {
+                  setApproveModalOpen(false);
+                  await handleCommitChanges();
+                }}
+                style={{
+                  padding: '10px 24px',
+                  background: 'linear-gradient(135deg, #28a745 0%, #20c997 100%)',
+                  border: 'none',
+                  borderRadius: '8px',
+                  color: '#fff',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '600'
+                }}
+              >
+                Yes, Approve
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

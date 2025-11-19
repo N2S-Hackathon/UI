@@ -1,13 +1,11 @@
-import { memo, useState } from 'react';
+import { memo } from 'react';
 
 const PromotionCard = memo(({ 
   promotion, 
   isExpanded, 
   onToggle, 
-  onOpenModal,
-  onCommitChanges
+  onOpenModal
 }) => {
-  const [isCommitting, setIsCommitting] = useState(false);
   return (
     <div className={`promotion-accordion ${isExpanded ? 'expanded' : ''}`}>
       {/* Collapsed State */}
@@ -19,11 +17,15 @@ const PromotionCard = memo(({
               <span className={`badge badge-${promotion.status}`}>
                 {promotion.status}
               </span>
-              {promotion.hasPendingChanges && (
+              {promotion.isStagingOnly ? (
+                <span className="badge" style={{ backgroundColor: '#4caf50', color: '#fff' }}>
+                  ✨ New Promotion
+                </span>
+              ) : promotion.hasPendingChanges ? (
                 <span className="badge" style={{ backgroundColor: '#ffc107', color: '#000' }}>
                   ⚠️ Pending Changes
                 </span>
-              )}
+              ) : null}
             </div>
           </div>
           <div className="promotion-products">
@@ -148,56 +150,6 @@ const PromotionCard = memo(({
                 <h5 style={{ margin: 0, color: '#856404' }}>
                   ⚠️ Pending Staging Changes ({promotion.stagingRecords.length})
                 </h5>
-                {onCommitChanges && (
-                  <button
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      setIsCommitting(true);
-                      try {
-                        await onCommitChanges();
-                      } finally {
-                        setIsCommitting(false);
-                      }
-                    }}
-                    disabled={isCommitting}
-                    style={{
-                      padding: '6px 12px',
-                      backgroundColor: isCommitting ? '#ccc' : '#28a745',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '4px',
-                      fontSize: '12px',
-                      fontWeight: '600',
-                      cursor: isCommitting ? 'not-allowed' : 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      transition: 'all 0.2s'
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isCommitting) {
-                        e.currentTarget.style.backgroundColor = '#218838';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isCommitting) {
-                        e.currentTarget.style.backgroundColor = '#28a745';
-                      }
-                    }}
-                  >
-                    {isCommitting ? (
-                      <>
-                        <span>⏳</span>
-                        <span>Committing...</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>✓</span>
-                        <span>Commit to Production</span>
-                      </>
-                    )}
-                  </button>
-                )}
               </div>
               {promotion.stagingRecords.map((staging, idx) => (
                 <div key={staging.stagingId} style={{ 

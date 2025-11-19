@@ -228,35 +228,42 @@ export const fetchPromotions = async () => {
       const promo = item.promotion || item;
       const stagingRecords = item.staging_records || [];
       
-      // Check for pending staging records
-      const hasPendingChanges = stagingRecords.some(sr => sr.stagingstatus === 'pending');
+      // Check if this is a staging-only (new) promotion
+      const isStagingOnly = item.promotion === null && stagingRecords.length > 0;
       
-      const status = calculatePromotionStatus(promo.startdate, promo.enddate);
+      // Use staging record data for display if promotion is null
+      const displayData = isStagingOnly ? stagingRecords[0] : promo;
+      
+      // Check for pending staging records
+      const hasPendingChanges = isStagingOnly || stagingRecords.some(sr => sr.stagingstatus === 'pending');
+      
+      const status = calculatePromotionStatus(displayData.startdate, displayData.enddate);
       
       // Calculate discount from price/discountamount if available
       let discount = 0;
-      if (promo.discountamount) {
-        discount = parseFloat(promo.discountamount);
+      if (displayData.discountamount) {
+        discount = parseFloat(displayData.discountamount);
       }
       
       return {
-        id: promo.promotionid,
-        name: promo.promotionname,
+        id: isStagingOnly ? displayData.stagingid : promo.promotionid,
+        name: displayData.promotionname,
         status: status,
-        startDate: formatDate(promo.startdate),
-        endDate: formatDate(promo.enddate),
+        startDate: formatDate(displayData.startdate),
+        endDate: formatDate(displayData.enddate),
         discount: discount,
         products: [], // Enriched in Dashboard by looking up productId from products list
-        cohort: promo.cohortlistid || 'All Customers', // Using cohort ID or fallback
-        action: promo.action,
-        productId: promo.productid,
-        price: promo.price ? parseFloat(promo.price) : null,
-        term: promo.term,
-        limitByZip: promo.limitbyzip,
-        limitByState: promo.limitbystate,
+        cohort: displayData.cohortlistid || 'All Customers', // Using cohort ID or fallback
+        action: displayData.action,
+        productId: displayData.productid,
+        price: displayData.price ? parseFloat(displayData.price) : null,
+        term: displayData.term,
+        limitByZip: displayData.limitbyzip,
+        limitByState: displayData.limitbystate,
         // Staging records support
+        isStagingOnly: isStagingOnly,
         hasPendingChanges: hasPendingChanges,
-        stagingRecords: stagingRecords.map(sr => ({
+        stagingRecords: isStagingOnly ? [] : stagingRecords.map(sr => ({
           stagingId: sr.stagingid,
           conversationId: sr.conversationid,
           status: sr.stagingstatus,
