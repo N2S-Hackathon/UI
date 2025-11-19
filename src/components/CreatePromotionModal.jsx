@@ -7,13 +7,16 @@ const CreatePromotionModal = memo(({ isOpen, onClose, products, cohorts, onSubmi
     name: '',
     products: [],
     cohort: '',
-    discount: '',
+    discountAmount: '',
+    discountTerm: '',
     startDate: '',
     endDate: ''
   });
   const [completedFields, setCompletedFields] = useState([]);
   const [selectedProducts, setSelectedProducts] = useState([]);
   const [selectedCohort, setSelectedCohort] = useState(null);
+  const [selectedDiscountAmount, setSelectedDiscountAmount] = useState(null);
+  const [selectedDiscountTerm, setSelectedDiscountTerm] = useState(null);
   const [selectedStartDate, setSelectedStartDate] = useState(null);
   const [selectedEndDate, setSelectedEndDate] = useState(null);
   const [showCustomDatePicker, setShowCustomDatePicker] = useState(false);
@@ -32,7 +35,7 @@ const CreatePromotionModal = memo(({ isOpen, onClose, products, cohorts, onSubmi
       const firstQuestion = {
         id: Date.now() + 1,
         type: 'bot',
-        content: "Let's start with the basics. What would you like to call this promotion?\n\nFor example: 'Spring Sale 2025' or 'New Customer Welcome'"
+        content: "Let's start with the basics. What would you like to call this promotion?"
       };
       
       setMessages([welcomeMessage, firstQuestion]);
@@ -66,6 +69,27 @@ const CreatePromotionModal = memo(({ isOpen, onClose, products, cohorts, onSubmi
       { label: 'Next Week', date: formatDate(nextWeek), value: formatDate(nextWeek) },
       { label: 'Next Month', date: formatDate(nextMonth), value: formatDate(nextMonth) }
     ];
+  }, []);
+
+  // Memoize discount amount options (increments of $5)
+  const discountAmountOptions = useMemo(() => {
+    const options = [];
+    for (let i = 5; i <= 100; i += 5) {
+      options.push({ label: `$${i}`, value: i });
+    }
+    return options;
+  }, []);
+
+  // Memoize discount term options (1-24 months)
+  const discountTermOptions = useMemo(() => {
+    const options = [];
+    for (let i = 1; i <= 24; i++) {
+      options.push({ 
+        label: i === 1 ? '1 month' : `${i} months`, 
+        value: i 
+      });
+    }
+    return options;
   }, []);
 
   const updatePromotionField = (field, value) => {
@@ -125,11 +149,53 @@ const CreatePromotionModal = memo(({ isOpen, onClose, products, cohorts, onSubmi
     const botResponse = {
       id: Date.now() + 1,
       type: 'bot',
-      content: `Perfect! Targeting ${selectedCohort} (${cohortData.estimatedPeople.toLocaleString()} people). ✓\n\nWhat discount percentage would you like to offer?\n\nFor example: "25%" or "30 percent"`
+      content: `Perfect! Targeting ${selectedCohort} (${cohortData.estimatedPeople.toLocaleString()} people). ✓\n\nNow let's set up the discount. What dollar amount off would you like to offer?\n\nSelect a discount amount:\n[SHOW_DISCOUNT_AMOUNT]`
     };
 
     setMessages(prev => [...prev, confirmMessage, botResponse]);
     setSelectedCohort(null);
+  };
+
+  const confirmDiscountAmountSelection = () => {
+    if (!selectedDiscountAmount) return;
+
+    updatePromotionField('discountAmount', selectedDiscountAmount);
+    
+    const confirmMessage = {
+      id: Date.now(),
+      type: 'user',
+      content: `$${selectedDiscountAmount} off`
+    };
+
+    const botResponse = {
+      id: Date.now() + 1,
+      type: 'bot',
+      content: `Great! $${selectedDiscountAmount} off. ✓\n\nFor how many months should this discount apply?\n\nSelect a term:\n[SHOW_DISCOUNT_TERM]`
+    };
+
+    setMessages(prev => [...prev, confirmMessage, botResponse]);
+    setSelectedDiscountAmount(null);
+  };
+
+  const confirmDiscountTermSelection = () => {
+    if (!selectedDiscountTerm) return;
+
+    updatePromotionField('discountTerm', selectedDiscountTerm);
+    
+    const confirmMessage = {
+      id: Date.now(),
+      type: 'user',
+      content: selectedDiscountTerm === 1 ? '1 month' : `${selectedDiscountTerm} months`
+    };
+
+    const botResponse = {
+      id: Date.now() + 1,
+      type: 'bot',
+      content: `Perfect! ${selectedDiscountTerm === 1 ? '1 month' : `${selectedDiscountTerm} months`} term. ✓\n\nWhen should this promotion start?\n\nChoose a date:\n[SHOW_DATE_PICKER]`
+    };
+
+    setMessages(prev => [...prev, confirmMessage, botResponse]);
+    setSelectedDiscountTerm(null);
   };
 
   const confirmStartDateSelection = () => {
@@ -168,7 +234,7 @@ const CreatePromotionModal = memo(({ isOpen, onClose, products, cohorts, onSubmi
     const botResponse = {
       id: Date.now() + 1,
       type: 'bot',
-      content: `Perfect! Ending on ${selectedEndDate}. ✓\n\n🎉 All done! Here's your new promotion:\n\n**${newPromotion.name}**\n• Products: ${newPromotion.products.join(', ')}\n• Target: ${newPromotion.cohort}\n• Discount: ${newPromotion.discount}%\n• Duration: ${newPromotion.startDate} to ${selectedEndDate}\n\nType "create" to finalize, or "change [field]" to modify something.`
+      content: `Perfect! Ending on ${selectedEndDate}. ✓\n\n🎉 All done! Here's your new promotion:\n\n**${newPromotion.name}**\n• Products: ${newPromotion.products.join(', ')}\n• Target: ${newPromotion.cohort}\n• Discount: $${newPromotion.discountAmount} off for ${newPromotion.discountTerm === 1 ? '1 month' : `${newPromotion.discountTerm} months`}\n• Duration: ${newPromotion.startDate} to ${selectedEndDate}\n\nType "create" to finalize, or "change [field]" to modify something.`
     };
 
     setMessages(prev => [...prev, confirmMessage, botResponse]);
@@ -182,7 +248,8 @@ const CreatePromotionModal = memo(({ isOpen, onClose, products, cohorts, onSubmi
       name: 'promotion name',
       products: 'products',
       cohort: 'target cohort',
-      discount: 'discount rate',
+      discountAmount: 'discount amount',
+      discountTerm: 'discount term',
       startDate: 'start date',
       endDate: 'end date'
     };
@@ -194,6 +261,12 @@ const CreatePromotionModal = memo(({ isOpen, onClose, products, cohorts, onSubmi
     } else if (field === 'cohort') {
       setNewPromotion(prev => ({ ...prev, [field]: '' }));
       setSelectedCohort(null);
+    } else if (field === 'discountAmount') {
+      setNewPromotion(prev => ({ ...prev, [field]: '' }));
+      setSelectedDiscountAmount(null);
+    } else if (field === 'discountTerm') {
+      setNewPromotion(prev => ({ ...prev, [field]: '' }));
+      setSelectedDiscountTerm(null);
     } else if (field === 'startDate') {
       setNewPromotion(prev => ({ ...prev, [field]: '' }));
       setSelectedStartDate(null);
@@ -222,6 +295,18 @@ const CreatePromotionModal = memo(({ isOpen, onClose, products, cohorts, onSubmi
         id: Date.now(),
         type: 'bot',
         content: `No problem! Let's update the ${fieldNames[field]}.\n\nSelect a cohort:\n[SHOW_COHORTS]`
+      };
+    } else if (field === 'discountAmount') {
+      editMessage = {
+        id: Date.now(),
+        type: 'bot',
+        content: `No problem! Let's update the ${fieldNames[field]}.\n\nSelect a discount amount:\n[SHOW_DISCOUNT_AMOUNT]`
+      };
+    } else if (field === 'discountTerm') {
+      editMessage = {
+        id: Date.now(),
+        type: 'bot',
+        content: `No problem! Let's update the ${fieldNames[field]}.\n\nSelect a term:\n[SHOW_DISCOUNT_TERM]`
       };
     } else if (field === 'startDate') {
       editMessage = {
@@ -267,20 +352,6 @@ const CreatePromotionModal = memo(({ isOpen, onClose, products, cohorts, onSubmi
         fieldToUpdate = 'name';
         valueToSet = userInput;
         botResponse = `Perfect! "${userInput}" is a great name. ✓\n\nNext, which products should be included in this promotion?\n\nClick on the products below to select them (you can select multiple):\n[SHOW_PRODUCTS]`;
-      } else if (!newPromotion.discount) {
-        const discountMatch = userInput.match(/(\d+)/);
-        if (discountMatch) {
-          const discount = parseInt(discountMatch[1]);
-          if (discount > 0 && discount <= 100) {
-            fieldToUpdate = 'discount';
-            valueToSet = discount.toString();
-            botResponse = `Excellent! ${discount}% discount it is. ✓\n\nWhen should this promotion start?\n\nChoose a date:\n[SHOW_DATE_PICKER]`;
-          } else {
-            botResponse = `The discount should be between 1% and 100%. What percentage would you like?`;
-          }
-        } else {
-          botResponse = `I need a number for the discount. For example: "25" or "30%"`;
-        }
       } else if (userInput.toLowerCase().includes('create') || userInput.toLowerCase().includes('yes') || userInput.toLowerCase().includes('confirm')) {
         botResponse = `🎉 Fantastic! "${newPromotion.name}" has been created and is ready for review. You'll find it in the scheduled promotions section.\n\nThe modal will close in a moment...`;
         setTimeout(() => {
@@ -341,7 +412,8 @@ const CreatePromotionModal = memo(({ isOpen, onClose, products, cohorts, onSubmi
                   { field: 'name', label: 'Promotion Name', value: newPromotion.name },
                   { field: 'products', label: 'Products', value: newPromotion.products.length > 0 ? `${newPromotion.products.length} selected` : '' },
                   { field: 'cohort', label: 'Target Cohort', value: newPromotion.cohort },
-                  { field: 'discount', label: 'Discount Rate', value: newPromotion.discount ? `${newPromotion.discount}%` : '' },
+                  { field: 'discountAmount', label: 'Discount Amount', value: newPromotion.discountAmount ? `$${newPromotion.discountAmount} off` : '' },
+                  { field: 'discountTerm', label: 'Discount Term', value: newPromotion.discountTerm ? (newPromotion.discountTerm === 1 ? '1 month' : `${newPromotion.discountTerm} months`) : '' },
                   { field: 'startDate', label: 'Start Date', value: newPromotion.startDate },
                   { field: 'endDate', label: 'End Date', value: newPromotion.endDate }
                 ].map((item, index) => (
@@ -379,11 +451,15 @@ const CreatePromotionModal = memo(({ isOpen, onClose, products, cohorts, onSubmi
                 {messages.map((message) => {
                   const showProducts = message.content.includes('[SHOW_PRODUCTS]');
                   const showCohorts = message.content.includes('[SHOW_COHORTS]');
+                  const showDiscountAmount = message.content.includes('[SHOW_DISCOUNT_AMOUNT]');
+                  const showDiscountTerm = message.content.includes('[SHOW_DISCOUNT_TERM]');
                   const showDatePicker = message.content.includes('[SHOW_DATE_PICKER]');
                   const showEndDatePicker = message.content.includes('[SHOW_END_DATE_PICKER]');
                   let cleanContent = message.content
                     .replace('[SHOW_PRODUCTS]', '')
                     .replace('[SHOW_COHORTS]', '')
+                    .replace('[SHOW_DISCOUNT_AMOUNT]', '')
+                    .replace('[SHOW_DISCOUNT_TERM]', '')
                     .replace('[SHOW_DATE_PICKER]', '')
                     .replace('[SHOW_END_DATE_PICKER]', '');
                   
@@ -465,6 +541,62 @@ const CreatePromotionModal = memo(({ isOpen, onClose, products, cohorts, onSubmi
                         </div>
                       )}
                       
+                      {showDiscountAmount && !newPromotion.discountAmount && (
+                        <div className="discount-selection-panel">
+                          <div className="discount-amount-grid">
+                            {discountAmountOptions.map(option => (
+                              <button
+                                key={option.value}
+                                className={`discount-amount-button ${selectedDiscountAmount === option.value ? 'selected' : ''}`}
+                                onClick={() => setSelectedDiscountAmount(option.value)}
+                              >
+                                {option.label}
+                                {selectedDiscountAmount === option.value && (
+                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                  </svg>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                          <button
+                            className="confirm-selection-button"
+                            onClick={confirmDiscountAmountSelection}
+                            disabled={!selectedDiscountAmount}
+                          >
+                            Confirm Amount
+                          </button>
+                        </div>
+                      )}
+                      
+                      {showDiscountTerm && !newPromotion.discountTerm && (
+                        <div className="discount-term-panel">
+                          <div className="discount-term-grid">
+                            {discountTermOptions.map(option => (
+                              <button
+                                key={option.value}
+                                className={`discount-term-button ${selectedDiscountTerm === option.value ? 'selected' : ''}`}
+                                onClick={() => setSelectedDiscountTerm(option.value)}
+                              >
+                                {option.label}
+                                {selectedDiscountTerm === option.value && (
+                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                  </svg>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                          <button
+                            className="confirm-selection-button"
+                            onClick={confirmDiscountTermSelection}
+                            disabled={!selectedDiscountTerm}
+                          >
+                            Confirm Term
+                          </button>
+                        </div>
+                      )}
+                      
                       {showDatePicker && !newPromotion.startDate && (
                         <div className="date-selection-panel">
                           <div className="quick-date-buttons">
@@ -532,8 +664,8 @@ const CreatePromotionModal = memo(({ isOpen, onClose, products, cohorts, onSubmi
                 <div ref={messagesEndRef} />
               </div>
               
-              {/* Submit Button - appears when all 6 tasks are completed */}
-              {completedFields.length === 6 && (
+              {/* Submit Button - appears when all 7 tasks are completed */}
+              {completedFields.length === 7 && (
                 <div className="conversation-submit-area">
                   <button 
                     className="submit-promotion-button"

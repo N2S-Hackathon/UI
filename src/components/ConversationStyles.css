@@ -1,0 +1,129 @@
+/* LLM Steps Display */
+.llm-steps-container {
+  margin: 10px 0;
+}
+
+.steps-header {
+  margin-bottom: 8px;
+}
+
+.processing-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #667eea;
+}
+
+.spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(102, 126, 234, 0.3);
+  border-top-color: #667eea;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.steps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.llm-step {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 10px 12px;
+  transition: all 0.3s ease;
+}
+
+.llm-step.latest {
+  border-color: rgba(102, 126, 234, 0.5);
+  background: rgba(102, 126, 234, 0.05);
+}
+
+.step-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.step-icon {
+  font-size: 16px;
+}
+
+.step-label {
+  font-weight: 600;
+  font-size: 13px;
+  color: #e2e8f0;
+  flex: 1;
+}
+
+.step-time {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.step-output {
+  font-size: 12px;
+  color: #cbd5e0;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  border-left: 2px solid #667eea;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+/* Processing Status in Input */
+.processing-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: rgba(102, 126, 234, 0.1);
+  border-radius: 4px;
+  font-size: 11px;
+  color: #667eea;
+  margin-bottom: 8px;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.status-dot.processing {
+  background: #667eea;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* Error Message Styling */
+.chat-message.error {
+  margin: 10px 0;
+}
+
+/* Disabled Input State */
+.chat-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.chat-send-button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+

@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, lazy, Suspense, useEffect, useRef } from 'react';
-import { fetchProducts, fetchCohorts, fetchPromotions } from '../services/api';
+import { fetchProducts, fetchCohorts, fetchPromotions, getActiveConversation, commitStagedPromotions } from '../services/api';
+import { useConversation } from '../hooks/useConversation';
 import PromotionCard from '../components/PromotionCard';
 import ProductCard from '../components/ProductCard';
 import CohortCard from '../components/CohortCard';
@@ -29,11 +30,13 @@ function Dashboard() {
   ]);
   const [isAokTyping, setIsAokTyping] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  
+  // Conversation management with polling
+  const conversation = useConversation();
   const [modalAction, setModalAction] = useState(null);
   const [selectedPromotion, setSelectedPromotion] = useState(null);
   const [selectedCohort, setSelectedCohort] = useState(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [pendingPromotionData, setPendingPromotionData] = useState(null);
   
   // API data states
   const [promotions, setPromotions] = useState([]);
@@ -52,6 +55,42 @@ function Dashboard() {
       actions
     }]);
   }, []);
+
+  // Auto-reload promotions when conversation completes
+  useEffect(() => {
+    // When a conversation turn completes, reload promotions to get latest data
+    // Only run if products are loaded (to avoid dependency issues)
+    if (conversation.status === 'completed' && conversation.latestTurn && products.length > 0) {
+      const reloadData = async () => {
+        console.log('Conversation completed, reloading promotions...');
+        try {
+          const promotionsData = await fetchPromotions();
+          
+          // Enrich promotions with product names
+          const enrichedPromotions = promotionsData.map(promo => {
+            if (promo.productId) {
+              const promoProductId = Number(promo.productId);
+              const product = products.find(p => Number(p.id) === promoProductId);
+              return {
+                ...promo,
+                products: product ? [product.name] : ['Unknown Product']
+              };
+            }
+            return promo;
+          });
+          
+          setPromotions(enrichedPromotions);
+          addAokMessage("✅ Changes applied! The promotions list has been updated.");
+        } catch (err) {
+          console.error('Failed to reload promotions:', err);
+        }
+      };
+      
+      // Delay slightly to allow backend to process
+      const timeoutId = setTimeout(reloadData, 1500);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [conversation.status, conversation.latestTurn, products, addAokMessage]);
 
   // Load data from API on component mount with progressive updates
   useEffect(() => {
@@ -72,6 +111,7 @@ function Dashboard() {
         addAokMessage("📦 Fetching your product catalog...");
         setIsAokTyping(true);
         const productsData = await fetchProducts();
+        console.log('Loaded products:', productsData.map(p => ({ id: p.id, name: p.name })));
         setProducts(productsData);
         await new Promise(resolve => setTimeout(resolve, 400));
         addAokMessage(`✓ Found ${productsData.length} products available`);
@@ -90,13 +130,60 @@ function Dashboard() {
         await new Promise(resolve => setTimeout(resolve, 600));
         addAokMessage("📊 Retrieving promotional campaigns...");
         const promotionsData = await fetchPromotions();
-        setPromotions(promotionsData);
+        
+        // Enrich promotions with product names by looking up productId
+        const enrichedPromotions = promotionsData.map(promo => {
+          if (promo.productId) {
+            // Convert to number for comparison (API might return string or number)
+            const promoProductId = Number(promo.productId);
+            const product = productsData.find(p => Number(p.id) === promoProductId);
+            console.log('Enriching promotion:', {
+              promoId: promo.id,
+              promoName: promo.name,
+              productId: promo.productId,
+              productIdType: typeof promo.productId,
+              promoProductIdNumber: promoProductId,
+              availableProductIds: productsData.map(p => ({ id: p.id, type: typeof p.id })),
+              foundProduct: product,
+              productName: product?.name
+            });
+            return {
+              ...promo,
+              products: product ? [product.name] : ['Unknown Product']
+            };
+          }
+          console.log('No productId for promotion:', promo.name);
+          return promo;
+        });
+        
+        setPromotions(enrichedPromotions);
         await new Promise(resolve => setTimeout(resolve, 400));
         
-        const pendingCount = promotionsData.filter(p => p.status === 'pending').length;
-        const activeCount = promotionsData.filter(p => p.status === 'active').length;
+        const pendingCount = enrichedPromotions.filter(p => p.status === 'pending').length;
+        const activeCount = enrichedPromotions.filter(p => p.status === 'active').length;
         
-        addAokMessage(`✓ Loaded ${promotionsData.length} promotions (${activeCount} active, ${pendingCount} pending review)`);
+        addAokMessage(`✓ Loaded ${enrichedPromotions.length} promotions (${activeCount} active, ${pendingCount} pending review)`);
+        
+        // Check for existing active conversation
+        setIsAokTyping(true);
+        await new Promise(resolve => setTimeout(resolve, 400));
+        addAokMessage("🔍 Checking for active conversations...");
+        
+        try {
+          const activeConversation = await getActiveConversation();
+          
+          if (activeConversation && activeConversation.turns && activeConversation.turns.length > 0) {
+            addAokMessage(`✓ Found active conversation with ${activeConversation.turns.length} turn${activeConversation.turns.length > 1 ? 's' : ''}`);
+            console.log('Active conversation loaded:', activeConversation);
+            // The conversation hook will handle displaying the turns
+          } else {
+            addAokMessage("✓ No active conversations found");
+          }
+        } catch (err) {
+          // No active conversation is not an error - it's expected for new sessions
+          console.log('No active conversation or error checking:', err.message);
+          addAokMessage("✓ Starting fresh - no active conversations");
+        }
         
         // Build CTAs dynamically based on data
         const quickActions = [
@@ -143,8 +230,9 @@ function Dashboard() {
   }, []);
 
   // Memoized filtered and sorted promotions
+  // Promotions for Review: Show promotions with pending staging records from API
   const pendingPromotions = useMemo(() => 
-    promotions.filter(p => p.status === 'pending'),
+    promotions.filter(p => p.hasPendingChanges === true),
     [promotions]
   );
 
@@ -214,35 +302,61 @@ function Dashboard() {
     setIsChatOpen(prev => !prev);
   }, []);
 
-  const handleSendMessage = useCallback((message) => {
-    // Add user message
-    const userMessage = {
-      id: Date.now(),
-      type: 'user',
-      content: message
-    };
-    setChatMessages(prev => [...prev, userMessage]);
+  const handleSendMessage = useCallback(async (message) => {
+    if (!message.trim()) return;
     
-    // Show typing indicator
-    setIsAokTyping(true);
+    // Determine if this is a new conversation or continuation
+    const isNewConversation = !conversation.conversationId || conversation.status === 'idle';
     
-    // Simulate bot response (you can integrate with the conversation API here)
-    setTimeout(() => {
-      setIsAokTyping(false);
-      const botMessage = {
-        id: Date.now() + 1,
-        type: 'bot',
-        content: "I received your message! I'm ready to help you with your ISP operations. This chat will be fully functional once connected to the conversation API."
-      };
-      setChatMessages(prev => [...prev, botMessage]);
-    }, 1200);
-  }, []);
+    if (isNewConversation) {
+      // Start new conversation with context path
+      const success = await conversation.startConversation('/promotion-management', message);
+      
+      if (success) {
+        addAokMessage("🔄 Processing your request...");
+      } else if (conversation.error) {
+        // Error handled by conversation hook, will display in ChatSidebar
+        console.error('Failed to start conversation:', conversation.error);
+      }
+    } else {
+      // Add turn to existing conversation
+      const success = await conversation.addTurn(message);
+      
+      if (success) {
+        addAokMessage("🔄 Processing your request...");
+      } else if (conversation.error) {
+        // Error handled by conversation hook
+        console.error('Failed to add turn:', conversation.error);
+      }
+    }
+  }, [conversation, addAokMessage]);
 
   const handleCTAClick = useCallback((action) => {
     switch (action) {
       case 'create_promotion':
-        openCreateModal();
-        addAokMessage("Great! Opening the promotion creation form for you. Fill in the details and I'll help you launch your new campaign! 🚀");
+        // Use conversation API to create promotions through A-OK
+        // Build suggestions from actual data
+        let suggestions = "Great! Let me help you create a new promotion. Tell me what you'd like to create.";
+        
+        if (products.length > 0 || cohorts.length > 0) {
+          suggestions += "\n\nHere's what I know about:";
+          
+          if (products.length > 0) {
+            const productNames = products.slice(0, 3).map(p => p.name).join(', ');
+            suggestions += `\n• **Products:** ${productNames}${products.length > 3 ? `, and ${products.length - 3} more` : ''}`;
+          }
+          
+          if (cohorts.length > 0) {
+            const cohortNames = cohorts.slice(0, 3).map(c => c.name).join(', ');
+            suggestions += `\n• **Customer Segments:** ${cohortNames}${cohorts.length > 3 ? `, and ${cohorts.length - 3} more` : ''}`;
+          }
+          
+          suggestions += "\n\nDescribe the promotion you'd like to create, and I'll set it up! 🚀";
+        } else {
+          suggestions += " Just describe what you'd like and I'll help you set it up! 🚀";
+        }
+        
+        addAokMessage(suggestions);
         break;
       case 'view_pending':
         setActiveTab('promotion');
@@ -253,61 +367,49 @@ function Dashboard() {
             pendingSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
           }
         }, 100);
-        addAokMessage("Showing you the pending promotions that need review. Click on any promotion to see details or take action. 📋");
-        break;
-      case 'submit_promotion':
-        if (pendingPromotionData) {
-          // Add the promotion to the promotions list
-          setPromotions(prev => [...prev, pendingPromotionData]);
-          setPendingPromotionData(null);
-          
-          // Switch to promotions tab and scroll to review section
-          setActiveTab('promotion');
-          
-          // Add success message
-          addAokMessage(`✅ Excellent! Your promotion **${pendingPromotionData.name}** has been submitted and is now in the "Promotions for Review" section below.`);
-          
-          // Scroll to the review section after a brief delay
-          setTimeout(() => {
-            const pendingSection = document.querySelector('.review-section');
-            if (pendingSection) {
-              pendingSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }
-          }, 100);
-        }
+        addAokMessage("Showing you the promotions with pending changes that need review. These are staging records waiting to be committed to production. 📋");
         break;
       default:
         console.log('Unknown CTA action:', action);
     }
-  }, [openCreateModal, addAokMessage, pendingPromotionData]);
+  }, [addAokMessage, products, cohorts, setActiveTab]);
 
   const handleTabChange = useCallback((tab) => {
     setActiveTab(tab);
   }, []);
 
-  const handleSubmitPromotion = useCallback((newPromotion) => {
-    // Store the pending promotion data but don't add to promotions yet
-    setPendingPromotionData(newPromotion);
-    
-    // Add A-ok message with the promotion details and Submit CTA
-    const summaryMessage = `🎉 Perfect! I've prepared your new promotion prompt: **${newPromotion.name}**\n\n` +
-      `Here's what you've configured:\n\n` +
-      `**Products:** ${Array.isArray(newPromotion.products) ? newPromotion.products.join(', ') : newPromotion.products}\n` +
-      `**Target Audience:** ${newPromotion.cohort}\n` +
-      `**Discount:** ${newPromotion.discount}% off\n` +
-      `**Start Date:** ${newPromotion.startDate}\n` +
-      `**End Date:** ${newPromotion.endDate}\n\n` +
-      `Review the details above and click Submit to add this promotion for review.`;
-    
-    addAokMessage(summaryMessage, [
-      {
-        label: 'Submit',
-        icon: '✓',
-        action: 'submit_promotion',
-        style: 'primary'
-      }
-    ]);
-  }, [addAokMessage]);
+  // Handle committing staging records to production
+  const handleCommitChanges = useCallback(async () => {
+    try {
+      addAokMessage("🔄 Committing pending changes to production...");
+      
+      await commitStagedPromotions();
+      
+      // Reload promotions to reflect changes
+      const promotionsData = await fetchPromotions();
+      
+      // Enrich promotions with product names
+      const enrichedPromotions = promotionsData.map(promo => {
+        if (promo.productId) {
+          const promoProductId = Number(promo.productId);
+          const product = products.find(p => Number(p.id) === promoProductId);
+          return {
+            ...promo,
+            products: product ? [product.name] : ['Unknown Product']
+          };
+        }
+        return promo;
+      });
+      
+      setPromotions(enrichedPromotions);
+      
+      addAokMessage("✅ Successfully committed all pending changes to production! Promotions have been updated.");
+      
+    } catch (err) {
+      console.error('Failed to commit staged promotions:', err);
+      addAokMessage("⚠️ Failed to commit changes. Please try again or contact support.");
+    }
+  }, [products, addAokMessage]);
 
   return (
     <div className="dashboard-container">
@@ -361,6 +463,10 @@ function Dashboard() {
           onSendMessage={handleSendMessage}
           isTyping={isAokTyping}
           onCTAClick={handleCTAClick}
+          conversationTurns={conversation.turns}
+          isProcessing={conversation.isProcessing}
+          canSendMessage={conversation.canSendMessage}
+          error={conversation.error}
         />
 
         {/* Action Window */}
@@ -440,6 +546,7 @@ function Dashboard() {
                           isExpanded={!!expandedPromotions[promotion.id]}
                           onToggle={() => togglePromotion(promotion.id)}
                           onOpenModal={openModal}
+                          onCommitChanges={handleCommitChanges}
                         />
                       ))}
                     </div>
@@ -468,6 +575,7 @@ function Dashboard() {
                         isExpanded={!!expandedPromotions[promotion.id]}
                         onToggle={() => togglePromotion(promotion.id)}
                         onOpenModal={openModal}
+                        onCommitChanges={handleCommitChanges}
                       />
                       ))}
                   </div>
@@ -491,6 +599,7 @@ function Dashboard() {
                         isExpanded={!!expandedPromotions[promotion.id]}
                         onToggle={() => togglePromotion(promotion.id)}
                         onOpenModal={openModal}
+                        onCommitChanges={handleCommitChanges}
                       />
                       ))}
                   </div>
@@ -543,7 +652,24 @@ function Dashboard() {
             onClose={closeCreateModal}
             products={products}
             cohorts={cohorts}
-            onSubmit={handleSubmitPromotion}
+            onSubmit={async (promotionData) => {
+              // Send promotion data through conversation API
+              const prompt = `Create a new promotion with the following details:\n` +
+                `Name: ${promotionData.name}\n` +
+                `Products: ${Array.isArray(promotionData.products) ? promotionData.products.join(', ') : promotionData.products}\n` +
+                `Target Cohort: ${promotionData.cohort}\n` +
+                `Discount: $${promotionData.discountAmount} off for ${promotionData.discountTerm} month${promotionData.discountTerm > 1 ? 's' : ''}\n` +
+                `Start Date: ${promotionData.startDate}\n` +
+                `End Date: ${promotionData.endDate}`;
+              
+              closeCreateModal();
+              
+              // Add user message showing what they're creating
+              addAokMessage(`📝 Creating promotion: ${promotionData.name}`);
+              
+              // Send to conversation API
+              await handleSendMessage(prompt);
+            }}
           />
         )}
         

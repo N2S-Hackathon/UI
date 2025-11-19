@@ -1,11 +1,13 @@
-import { memo } from 'react';
+import { memo, useState } from 'react';
 
 const PromotionCard = memo(({ 
   promotion, 
   isExpanded, 
   onToggle, 
-  onOpenModal 
+  onOpenModal,
+  onCommitChanges
 }) => {
+  const [isCommitting, setIsCommitting] = useState(false);
   return (
     <div className={`promotion-accordion ${isExpanded ? 'expanded' : ''}`}>
       {/* Collapsed State */}
@@ -13,16 +15,29 @@ const PromotionCard = memo(({
         <div className="promotion-summary-left">
           <div className="promotion-header-row">
             <h4 className="promotion-name">{promotion.name}</h4>
-            <span className={`badge badge-${promotion.status}`}>
-              {promotion.status}
-            </span>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <span className={`badge badge-${promotion.status}`}>
+                {promotion.status}
+              </span>
+              {promotion.hasPendingChanges && (
+                <span className="badge" style={{ backgroundColor: '#ffc107', color: '#000' }}>
+                  ⚠️ Pending Changes
+                </span>
+              )}
+            </div>
           </div>
           <div className="promotion-products">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="16.5" y1="9.4" x2="7.5" y2="4.21"></line>
               <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
             </svg>
-            <span>{promotion.products.join(' • ')}</span>
+            <span>
+              {promotion.products && promotion.products.length > 0 
+                ? promotion.products.join(' • ') 
+                : promotion.productId 
+                  ? `Product ID: ${promotion.productId}` 
+                  : 'No product specified'}
+            </span>
           </div>
         </div>
         
@@ -73,7 +88,18 @@ const PromotionCard = memo(({
                 </tr>
               </thead>
               <tbody>
-                {promotion.products.map((productName, index) => {
+                {(promotion.products && promotion.products.length > 0 ? promotion.products : ['Product info loading...']).map((productName, index) => {
+                  // Debug logging
+                  if (index === 0) {
+                    console.log('PromotionCard rendering:', {
+                      promotionName: promotion.name,
+                      productsArray: promotion.products,
+                      productsLength: promotion.products?.length,
+                      productId: promotion.productId,
+                      firstProduct: productName
+                    });
+                  }
+                  
                   // Mock data - will be replaced with API call later
                   const baseRate = 59.99 + (index * 20);
                   const finalRate = baseRate * (1 - promotion.discount / 100);
@@ -108,6 +134,95 @@ const PromotionCard = memo(({
               </tbody>
             </table>
           </div>
+
+          {/* Staging Records Section */}
+          {promotion.stagingRecords && promotion.stagingRecords.length > 0 && (
+            <div className="staging-records" style={{ 
+              marginTop: '20px', 
+              padding: '15px', 
+              backgroundColor: '#fff9e6', 
+              border: '1px solid #ffc107',
+              borderRadius: '8px'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                <h5 style={{ margin: 0, color: '#856404' }}>
+                  ⚠️ Pending Staging Changes ({promotion.stagingRecords.length})
+                </h5>
+                {onCommitChanges && (
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      setIsCommitting(true);
+                      try {
+                        await onCommitChanges();
+                      } finally {
+                        setIsCommitting(false);
+                      }
+                    }}
+                    disabled={isCommitting}
+                    style={{
+                      padding: '6px 12px',
+                      backgroundColor: isCommitting ? '#ccc' : '#28a745',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      cursor: isCommitting ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isCommitting) {
+                        e.currentTarget.style.backgroundColor = '#218838';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isCommitting) {
+                        e.currentTarget.style.backgroundColor = '#28a745';
+                      }
+                    }}
+                  >
+                    {isCommitting ? (
+                      <>
+                        <span>⏳</span>
+                        <span>Committing...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>✓</span>
+                        <span>Commit to Production</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+              {promotion.stagingRecords.map((staging, idx) => (
+                <div key={staging.stagingId} style={{ 
+                  padding: '10px', 
+                  backgroundColor: 'white', 
+                  borderRadius: '4px',
+                  marginBottom: idx < promotion.stagingRecords.length - 1 ? '8px' : '0'
+                }}>
+                  <div style={{ fontSize: '12px', color: '#666' }}>
+                    <strong>Status:</strong> {staging.status} | <strong>Created:</strong> {new Date(staging.createdOn).toLocaleString()}
+                  </div>
+                  {staging.promotionName && (
+                    <div style={{ fontSize: '12px', marginTop: '4px' }}>
+                      <strong>Name:</strong> {staging.promotionName}
+                    </div>
+                  )}
+                  {staging.action && (
+                    <div style={{ fontSize: '12px', marginTop: '4px' }}>
+                      <strong>Action:</strong> {staging.action}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
 
           <div className="agent-actions">
             <h5>A-OK Agent Actions:</h5>

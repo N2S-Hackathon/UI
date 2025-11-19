@@ -83,7 +83,8 @@ export const fetchProducts = async () => {
         price: activeRate ? parseFloat(activeRate.price) : 0,
         type: product.producttype,
         features: [], // Not in API, using empty array
-        status: 'active' // Fallback status
+        status: 'active', // Fallback status
+        rates: product.rates || [] // Keep original rates for detailed view
       };
     });
   } catch (error) {
@@ -91,6 +92,46 @@ export const fetchProducts = async () => {
     // Fallback to mock data from staticData
     const { PRODUCTS_DATA } = await import('../data/staticData');
     return PRODUCTS_DATA;
+  }
+};
+
+/**
+ * Fetch a specific product by ID with its rate schedule
+ * @param {number} productId - Product ID
+ * @returns {Promise} Product details with rates
+ */
+export const fetchProductById = async (productId) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/product/${productId}`, {
+      headers: getAuthHeaders()
+    });
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.status}`);
+    }
+    
+    const product = await response.json();
+    
+    // Get the current/active rate
+    const activeRate = product.rates && product.rates.length > 0
+      ? product.rates
+          .filter(r => !r.enddate || new Date(r.enddate) > new Date())
+          .sort((a, b) => new Date(b.startdate) - new Date(a.startdate))[0]
+      : null;
+    
+    return {
+      id: product.productid,
+      name: product.productname,
+      description: `${product.producttype} internet service`,
+      speed: product.productspeed ? `${product.productspeed} Mbps` : 'N/A',
+      price: activeRate ? parseFloat(activeRate.price) : 0,
+      type: product.producttype,
+      features: [],
+      status: 'active',
+      rates: product.rates || []
+    };
+  } catch (error) {
+    console.error(`Failed to fetch product ${productId}:`, error);
+    throw error;
   }
 };
 
@@ -147,11 +188,13 @@ export const fetchCohorts = async () => {
     const apiCohorts = await response.json();
     
     // Transform API data to match UI structure
+    // API returns: cohort_name, cohort_id, zipcode_count, description, created_at
     return apiCohorts.map(cohort => ({
       id: cohort.cohort_id,
       name: cohort.cohort_name,
       estimatedPeople: cohort.zipcode_count || 0,
       description: cohort.description || 'Customer cohort',
+      createdAt: cohort.created_at,
       zipCodes: [] // Summary endpoint doesn't include zipcodes, fetch detail if needed
     }));
   } catch (error) {
@@ -178,7 +221,16 @@ export const fetchPromotions = async () => {
     const apiPromotions = await response.json();
     
     // Transform API data to match UI structure
-    return apiPromotions.map(promo => {
+    // API returns PromotionWithStagingResponse: { promotion: {...}, staging_records: [...] }
+    // Note: products array is enriched in Dashboard component by looking up productId
+    return apiPromotions.map(item => {
+      // Extract the nested promotion object
+      const promo = item.promotion || item;
+      const stagingRecords = item.staging_records || [];
+      
+      // Check for pending staging records
+      const hasPendingChanges = stagingRecords.some(sr => sr.stagingstatus === 'pending');
+      
       const status = calculatePromotionStatus(promo.startdate, promo.enddate);
       
       // Calculate discount from price/discountamount if available
@@ -194,14 +246,31 @@ export const fetchPromotions = async () => {
         startDate: formatDate(promo.startdate),
         endDate: formatDate(promo.enddate),
         discount: discount,
-        products: [], // Not directly in API, would need product lookup
+        products: [], // Enriched in Dashboard by looking up productId from products list
         cohort: promo.cohortlistid || 'All Customers', // Using cohort ID or fallback
         action: promo.action,
         productId: promo.productid,
         price: promo.price ? parseFloat(promo.price) : null,
         term: promo.term,
         limitByZip: promo.limitbyzip,
-        limitByState: promo.limitbystate
+        limitByState: promo.limitbystate,
+        // Staging records support
+        hasPendingChanges: hasPendingChanges,
+        stagingRecords: stagingRecords.map(sr => ({
+          stagingId: sr.stagingid,
+          conversationId: sr.conversationid,
+          status: sr.stagingstatus,
+          createdOn: sr.createdon,
+          promotionName: sr.promotionname,
+          startDate: formatDate(sr.startdate),
+          endDate: formatDate(sr.enddate),
+          cohortListId: sr.cohortlistid,
+          action: sr.action,
+          productId: sr.productid,
+          price: sr.price ? parseFloat(sr.price) : null,
+          discountAmount: sr.discountamount ? parseFloat(sr.discountamount) : null,
+          term: sr.term
+        }))
       };
     });
   } catch (error) {
@@ -249,6 +318,29 @@ export const deletePromotion = async (promotionId) => {
   return { success: true };
 };
 
+/**
+ * Commit all pending staging records to production promotion table
+ * This is a non-agentic administrative endpoint
+ * @returns {Promise} Success response (204 No Content)
+ */
+export const commitStagedPromotions = async () => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/promotion/promotions-commit`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.status}`);
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to commit staged promotions:', error);
+    throw error;
+  }
+};
+
 // ====================
 // CONVERSATION API (Agentic)
 // ====================
@@ -288,13 +380,13 @@ export const createConversation = async (contextPath, prompt) => {
 
 /**
  * Get the active conversation with all turns
- * @param {number} lastTurnSeen - Optional: last turn index seen (for polling)
+ * @param {string} lastStepIdSeen - Optional: last step UUID seen (for polling new steps)
  * @returns {Promise} Full conversation with turns
  */
-export const getActiveConversation = async (lastTurnSeen = null) => {
+export const getActiveConversation = async (lastStepIdSeen = null) => {
   try {
-    const url = lastTurnSeen !== null 
-      ? `${API_BASE_URL}/conversation?last_turn_seen=${lastTurnSeen}`
+    const url = lastStepIdSeen 
+      ? `${API_BASE_URL}/conversation?last_step_id_seen=${lastStepIdSeen}`
       : `${API_BASE_URL}/conversation`;
     
     const response = await fetch(url, {
@@ -313,6 +405,8 @@ export const getActiveConversation = async (lastTurnSeen = null) => {
       turns: data.turns.map(turn => ({
         turnId: turn.turn_id,
         userMessage: turn.user_message,
+        status: turn.status,
+        assistantResponse: turn.assistant_response,
         createdAt: turn.created_at,
         llmSteps: turn.llm_steps.map(step => ({
           stepId: step.step_id,
@@ -352,12 +446,93 @@ export const getConversationById = async (conversationId) => {
       turns: data.turns.map(turn => ({
         turnId: turn.turn_id,
         userMessage: turn.user_message,
+        status: turn.status,
+        assistantResponse: turn.assistant_response,
         createdAt: turn.created_at,
-        llmSteps: turn.llm_steps
+        llmSteps: turn.llm_steps.map(step => ({
+          stepId: step.step_id,
+          stepType: step.step_type,
+          input: step.input,
+          output: step.output,
+          createdAt: step.created_at
+        }))
       }))
     };
   } catch (error) {
     console.error('Failed to fetch conversation by ID:', error);
+    throw error;
+  }
+};
+
+/**
+ * Add a new turn to an existing conversation
+ * @param {string} conversationId - Conversation UUID
+ * @param {string} prompt - User message for the new turn
+ * @param {boolean} force - Optional: force override if previous turn is stale (1-10 min old)
+ * @returns {Promise} Turn creation response with turn_id
+ */
+export const addConversationTurn = async (conversationId, prompt, force = false) => {
+  try {
+    const url = force 
+      ? `${API_BASE_URL}/conversation/${conversationId}/turn?force=true`
+      : `${API_BASE_URL}/conversation/${conversationId}/turn`;
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ prompt })
+    });
+    
+    if (!response.ok) {
+      if (response.status === 400) {
+        throw new Error('Previous turn is still processing. Please wait or use force=true if stale.');
+      }
+      throw new Error(`API Error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    return {
+      conversationId: data.conversation_id,
+      turnId: data.turn_id,
+      createdAt: data.created_at
+    };
+  } catch (error) {
+    console.error('Failed to add conversation turn:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get detailed cohort information including all zipcodes
+ * @param {string} cohortId - Cohort UUID
+ * @returns {Promise} Detailed cohort with zipcodes
+ */
+export const fetchCohortById = async (cohortId) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/cohort-list/${cohortId}`, {
+      headers: getAuthHeaders()
+    });
+    
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.status}`);
+    }
+    
+    const cohort = await response.json();
+    
+    // Transform API data to match UI structure
+    return {
+      id: cohort.cohort_id,
+      name: cohort.cohort_name,
+      description: cohort.description,
+      createdAt: cohort.created_at,
+      zipCodes: cohort.zipcodes.map(z => ({
+        zipcode: z.zipcode,
+        associated: z.associated
+      })),
+      estimatedPeople: cohort.zipcodes.length
+    };
+  } catch (error) {
+    console.error('Failed to fetch cohort details:', error);
     throw error;
   }
 };
